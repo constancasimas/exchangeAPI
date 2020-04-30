@@ -1,0 +1,12 @@
+{
+  "name": "exchangeapi",
+  "version": "1.0.0",
+  "description": "Connects to the blockchain exchange API to perform trading requests.",
+  "main": "exchangeAPI.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node exchangeAPI.js"
+  },
+  "author": "Constança Simas\u001b[A\u001b[B",
+  "license": "ISC"
+}
