@@ -5,8 +5,11 @@
   "main": "exchangeAPI.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node exchangeAPI.js"
+    "start": "node app.js"
   },
   "author": "Constança Simas\u001b[A\u001b[B",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "properties-reader": "^2.0.0"
+  }
 }

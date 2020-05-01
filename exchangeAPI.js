@@ -1,175 +1,191 @@
-const WebSocket = require('ws');
-
 granularityArray = [60, 300, 900, 3600, 21600, 86400];
+timeInForceArray = ['GTC', 'GTD', 'FOK', 'IOC'];
+sideArray = ['buy', 'sell'];
 
-const readline = require('readline').createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+module.exports = {
+  // Anonymous subscriptions
+  subscribeAuth: function (connection, apiKey) {
+    connection.send(
+      JSON.stringify({
+        token: apiKey,
+        action: 'subscribe',
+        channel: 'auth',
+      })
+    );
+  },
 
-readline.question('Please insert your API key:', (apiKey) => {
-  readline.close();
-  connect(apiKey);
-});
-
-function connect(apiKey) {
-  connection = new WebSocket('wss://ws.prod.blockchain.info/mercury-gateway/v1/ws', {
-    origin: 'https://exchange.blockchain.com',
-  });
-  connection.onopen = function () {
-    subscriptions(connection, apiKey);
-  };
-
-  connection.onmessage = function (evt) {
-    var msg = JSON.parse(evt.data);
-    if (msg.event != 'subscribed') {
-      console.log('Message on %s channel: ', msg.channel);
-      console.dir(msg);
+  subscribeMarketData: function (connection, symbol, granularity) {
+    if (!granularityArray.includes(granularity)) {
+      console.log('Granularity %d is incorrect. Unable to subscribe to market data.', granularity);
+      return;
     }
-    if (msg.channel == 'auth' && msg.event == 'subscribed') {
-      console.log('Websocket authentication successful.');
-      authSubscriptions(connection);
+    connection.send(
+      JSON.stringify({
+        action: 'subscribe',
+        channel: 'prices',
+        symbol: symbol,
+        granularity: granularity,
+      })
+    );
+  },
+
+  subscribeSymbols: function (connection) {
+    connection.send(
+      JSON.stringify({
+        action: 'subscribe',
+        channel: 'symbols',
+      })
+    );
+  },
+
+  subscribeOrdersL2: function (connection, openSymbols) {
+    openSymbols.forEach((symbol) =>
+      connection.send(
+        JSON.stringify({
+          action: 'subscribe',
+          channel: 'l2',
+          symbol: symbol,
+        })
+      )
+    );
+  },
+
+  subscribeOrdersL3: function (connection, openSymbols) {
+    openSymbols.forEach((symbol) =>
+      connection.send(
+        JSON.stringify({
+          action: 'subscribe',
+          channel: 'l3',
+          symbol: symbol,
+        })
+      )
+    );
+  },
+
+  // Authenticates subscriptions
+  subscribeTrading: function (connection) {
+    connection.send(
+      JSON.stringify({
+        action: 'subscribe',
+        channel: 'trading',
+      })
+    );
+  },
+
+  subscribeBalances: function (connection) {
+    connection.send(
+      JSON.stringify({
+        action: 'subscribe',
+        channel: 'balances',
+      })
+    );
+  },
+
+  // Trading actions
+  newLimitOrder: function (
+    connection,
+    symbol,
+    timeInForce,
+    side,
+    orderQty,
+    price,
+    stopPx = 0,
+    expireDate = '',
+    minQty = '',
+    execInst = ''
+  ) {
+    try {
+      const limitOrder = {
+        ...createSimpleOrder(symbol, timeInForce, side, orderQty),
+        ordType: 'limit',
+        price: price,
+        stopPx: stopPx,
+        expireDate: expireDate,
+        minQty: minQty,
+        execInst: execInst,
+      };
+      connection.send(JSON.stringify(limitOrder));
+    } catch (error) {
+      console.log(error);
     }
-    if (msg.channel == 'trading' && msg.event == 'subscribed') {
-      console.log('Ready to trade!');
-      tradingActions(connection, msg);
+  },
+
+  newMarketOrder: function (connection, symbol, side, orderQty, timeInForce = 'GTC', minQty = '') {
+    try {
+      const marketOrder = {
+        ...createSimpleOrder(symbol, timeInForce, side, orderQty),
+        ordType: 'market',
+        minQty: minQty,
+      };
+      connection.send(JSON.stringify(marketOrder));
+    } catch (error) {
+      console.log(error);
     }
-  };
-}
+  },
 
-function subscriptions(connection, apiKey) {
-  subscribeAuth(connection, apiKey);
-  subscribeMarketData(connection, 'BTC-USD', 900);
-  subscribeSymbols(connection);
-}
+  getOrderState: function (orders, orderID) {
+    if (orders.length == 0) {
+      console.log('There are no orders in the snapshot.');
+      return;
+    }
+    const order = orders.find((order) => order.orderID === orderID);
+    if (!order) {
+      console.log('There is no order with this ID %s in the snapshot.', orderID);
+      return;
+    }
+    console.log('State for order %s is %s.', orderID, order.orderState);
+  },
 
-function authSubscriptions(connection) {
-  subscribeTrading(connection);
-  subscribeBalances(connection);
-}
-
-function subscribeAuth(connection, apiKey) {
-  connection.send(
-    JSON.stringify({
-      token: apiKey,
-      action: 'subscribe',
-      channel: 'auth',
-    })
-  );
-}
-
-function subscribeMarketData(connection, symbol, granularity) {
-  if (!granularityArray.includes(granularity)) {
-    console.log('Granularity %d is incorrect. Unable to subscribe to market data.', granularity);
-    return;
-  }
-  connection.send(
-    JSON.stringify({
-      action: 'subscribe',
-      channel: 'prices',
-      symbol: symbol,
-      granularity: granularity,
-    })
-  );
-}
-
-function subscribeSymbols(connection) {
-  connection.send(
-    JSON.stringify({
-      action: 'subscribe',
-      channel: 'symbols',
-    })
-  );
-}
-
-function subscribeTrading(connection) {
-  connection.send(
-    JSON.stringify({
-      action: 'subscribe',
-      channel: 'trading',
-    })
-  );
-}
-
-function subscribeBalances(connection) {
-  connection.send(
-    JSON.stringify({
-      action: 'subscribe',
-      channel: 'balances',
-    })
-  );
-}
-
-function tradingActions(connection, msg) {
-  newLimitOrder(connection, 'BTC-GBP', 'GTC', 'buy', 0.1, 1.0, 0, '20200501');
-  newMarketOrder(connection, 'BTC-GBP', 'sell', 0.1);
-  // getOrderState should be getting msg as input, this is just being used for testing
-  getOrderState(testingOrders(), '4561237891');
-  cancelOrder('12891851020');
-  cancelAllOrders(testingOrders());
-}
-
-function newLimitOrder(
-  connection,
-  symbol,
-  timeInForce,
-  side,
-  orderQty,
-  price,
-  stopPx = 0,
-  expireDate = '',
-  minQty = '',
-  execInst = ''
-) {
-  const limitOrder = {
-    ...createSimpleOrder(symbol, timeInForce, side, orderQty),
-    ordType: 'limit',
-    price: price,
-    stopPx: stopPx,
-    expireDate: expireDate,
-    minQty: minQty,
-    execInst: execInst,
-  };
-  connection.send(JSON.stringify(limitOrder));
-}
-
-function newMarketOrder(connection, symbol, side, orderQty, timeInForce = 'GTC', minQty = '') {
-  const marketOrder = {
-    ...createSimpleOrder(symbol, timeInForce, side, orderQty),
-    ordType: 'market',
-    minQty: minQty,
-  };
-  connection.send(JSON.stringify(marketOrder));
-}
-
-function getOrderState(msg, orderID) {
-  const state = msg.orders.find((order) => order.orderID === orderID).ordStatus;
-  console.log('State for order %s is %s.', orderID, state);
-}
-
-function cancelOrder(orderID) {
-  connection.send(
-    JSON.stringify({
-      action: 'CancelOrderRequest',
-      channel: 'trading',
-      orderID: orderID,
-    })
-  );
-}
-
-function cancelAllOrders(msg) {
-  msg.orders.forEach((order) => {
+  cancelOrder: function (orderID) {
     connection.send(
       JSON.stringify({
         action: 'CancelOrderRequest',
         channel: 'trading',
-        orderID: order.orderID,
+        orderID: orderID,
       })
     );
-  });
-}
+  },
+
+  cancelAllOrders: function (orders) {
+    if (orders.length == 0) {
+      console.log('There are no orders in the snapshot.');
+      return;
+    }
+    orders.forEach((order) => {
+      connection.send(
+        JSON.stringify({
+          action: 'CancelOrderRequest',
+          channel: 'trading',
+          orderID: order.orderID,
+        })
+      );
+    });
+  },
+
+  findSymbols: function (msg) {
+    return Object.keys(msg.symbols);
+  },
+
+  findOpenSymbols: function (msg) {
+    return Object.entries(msg.symbols)
+      .map(([key, value]) => {
+        if (value.status == 'open') {
+          return key;
+        }
+      })
+      .filter((symbol) => {
+        return symbol !== undefined;
+      });
+  },
+};
 
 function createSimpleOrder(symbol, timeInForce, side, orderQty) {
+  if (!timeInForceArray.includes(timeInForce)) {
+    throw `Time in force ${timeInForce} is not valid.`;
+  }
+  if (!sideArray.includes(side)) {
+    throw `Side ${side} is not valid.`;
+  }
   return {
     action: 'NewOrderSingle',
     channel: 'trading',
@@ -178,62 +194,5 @@ function createSimpleOrder(symbol, timeInForce, side, orderQty) {
     timeInForce: timeInForce,
     side: side,
     orderQty: orderQty,
-  };
-}
-
-function testingOrders() {
-  return {
-    seqnum: 3,
-    event: 'snapshot',
-    channel: 'trading',
-    orders: [
-      {
-        orderID: '12891851020',
-        clOrdID: '78502a08-c8f1-4eff-b',
-        symbol: 'BTC-USD',
-        side: 'sell',
-        ordType: 'limit',
-        orderQty: 5.0e-4,
-        leavesQty: 5.0e-4,
-        cumQty: 0.0,
-        avgPx: 0.0,
-        ordStatus: 'open',
-        timeInForce: 'GTC',
-        text: 'New order',
-        execType: '0',
-        execID: '11321871',
-        transactTime: '2019-08-13T11:30:03.000593290Z',
-        msgType: 8,
-        lastPx: 0.0,
-        lastShares: 0.0,
-        tradeId: '0',
-        price: 15000.0,
-      },
-      {
-        seqnum: 1,
-        event: 'updated',
-        channel: 'trading',
-        orderID: '4561237891',
-        clOrdID: 'Client ID 3',
-        symbol: 'BTC-USD',
-        side: 'buy',
-        ordType: 'market',
-        orderQty: 3.0,
-        leavesQty: 3.0,
-        cumQty: 0.0,
-        avgPx: 0.0,
-        ordStatus: 'cancelled',
-        timeInForce: 'GTC',
-        text: 'Met cash limit',
-        execType: '4',
-        execID: '1111111111',
-        transactTime: '2019-01-01T08:08:08.000888888Z',
-        msgType: 8,
-        lastPx: 0.0,
-        lastShares: 0.0,
-        tradeId: '0',
-        fee: 0.0,
-      },
-    ],
   };
 }
