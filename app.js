@@ -19,9 +19,18 @@ function connect(apiKey) {
     const msg = JSON.parse(evt.data);
 
     // Authenticate connection
-    if (msg.channel == 'auth' && msg.event == 'subscribed') {
-      console.log('Websocket authentication successful.');
-      api.subscribeTrading(connection);
+    if (msg.channel == 'auth') {
+      switch (msg.event) {
+        case 'subscribed':
+          console.log('Websocket authentication successful.');
+          api.subscribeTrading(connection);
+          break;
+        case 'rejected':
+          console.log(msg.text);
+          break;
+        default:
+          break;
+      }
     }
 
     // Find current open symbols
