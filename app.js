@@ -66,7 +66,7 @@ function connect(apiKey) {
           console.log('Subscribing to symbol: %s', symbol);
           api.subscribeMarketData(connection, symbol, 60);
           api.subscribeOrdersL2(connection, symbol);
-          // Function for the actual strategy, where we decide when to open and cancel orders
+          // Every 10 seconds we run the trading strategy to open and cancel orders
           setInterval(() => botLogic(connection, orders, symbol, balances, l2Bids, l2Asks, prices, symbolMins), 10000);
         });
       }
@@ -75,7 +75,6 @@ function connect(apiKey) {
     // Handling for messages in the prices channel: fill and update the prices per symbol
     if (msg.channel == 'prices' && msg.event != 'subscribed') {
       prices[msg.symbol] = msg.price;
-      console.log('Current prices for symbol %s: %o', msg.symbol, msg.price);
     }
 
     // Handling for messages in the l2 channel
@@ -134,8 +133,8 @@ function connect(apiKey) {
 }
 
 // Contains all the logic for the strategy
-// We want to be top of the book, but making sure our price is far enough from the last traded price (by at least the rate defined in
-// config.properties) for us to make money on mark-to-market, without being picked by faster algos
+// We want to be top of the book, but making sure our price is far enough from the last traded price
+// (by at least the rate defined in config.properties)
 const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks, prices, symbolMins) {
   if (balances.length == 0 || l2Bids[symbol] == undefined || l2Asks == undefined) {
     return;
@@ -150,25 +149,17 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
   });
   if (!(bidBalance == undefined || bidBalance <= 0)) {
     if (!isEmptyOrNoKey(prices, symbol)) {
-      // latest price * (1 - rate) > price of maximum bid AND latest price is from less than 3 minutes ago -- we want to be sure that latest traded
-      // price is far from price we want to place order at, while being still recent enough to be representative
+      // latest price * (1 - rate) > price of maximum bid AND latest price is more recent than 3 minutes
       if (prices[symbol][4] * (1 - rate) > maximumBid && timeDifference(prices[symbol][0]) < 180) {
-        // Price is maximum bid + smallest possible increment to be tob
+        // Price is maximum bid + smallest possible increment, to be tob
         bidPrice = round(maximumBid + symbolMins[symbol][0], 8);
-        // In this case we need to convert the balance to the base currency. We will put all balance on the order, but need to correct for
-        // the trading fee, which is paid from that amount
+        // In this case we need to convert the balance to the base currency.
+        // We use all balance on the order and correct for the trading fee
         bidQty = roundDown((0.997 * bidBalance) / bidPrice, 6);
         // Check quantity is higher than minimum order size
         if (bidQty > symbolMins[symbol][1]) {
           api.newLimitOrder(connection, symbol, 'GTC', 'buy', bidQty, bidPrice);
-          console.log(
-            'New bid made for %s with balance %d and price %d at %d. This competes with bid %d.',
-            symbol,
-            bidQty,
-            bidPrice,
-            Date.now(),
-            maximumBid
-          );
+          console.log('%d: New bid made on %s at price %d, for quantity %d.', Date.now(), symbol, bidPrice, bidQty);
         }
       }
     }
@@ -182,7 +173,7 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
   });
   if (!(askBalance == undefined || askBalance <= 0)) {
     if (!isEmptyOrNoKey(prices, symbol)) {
-      // latest price * (1 + rate) < price of minimum ask AND latest price is from less than 3 minutes ago
+      // latest price * (1 + rate) < price of minimum ask AND latest price is more recent than 3 minutes
       if (prices[symbol][4] * (1 + rate) < minimumAsk && timeDifference(prices[symbol][0]) < 180) {
         // Price is minimum ask - increment
         askPrice = round(minimumAsk - symbolMins[symbol][0], 8);
@@ -190,14 +181,7 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
         // Check quantity is higher than minimum order size
         if (askQty > symbolMins[symbol][1]) {
           api.newLimitOrder(connection, symbol, 'GTC', 'sell', askBalance, askPrice);
-          console.log(
-            'New ask made for %s with balance %d and price %d at %d. This competes with ask %d.',
-            symbol,
-            askQty,
-            askPrice,
-            Date.now(),
-            minimumAsk
-          );
+          console.log('%d: New ask made on %s at price %d, for quantity %d.', Date.now(), symbol, askPrice, askQty);
         }
       }
     }
@@ -209,35 +193,25 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
     .forEach((order) => {
       switch (order.side) {
         case 'buy':
-          // Best bid > our price (not tob any more) OR latest price * (1 - cancelRate) < our bid price OR last traded price older than 5 mins
+          // Best bid > our price OR latest price * (1 - cancelRate) < our bid price OR last traded price older than 5 mins
           if (
             maximumBid > order.price ||
             prices[symbol][4] * (1 - cancelRate) < order.price ||
             timeDifference(prices[symbol][0]) > 300
           ) {
             api.cancelOrder(order.orderID);
-            console.log(
-              'Order %s was cancelled at %d. Show order maximumBid: %d.',
-              order.orderID,
-              Date.now(),
-              maximumBid
-            );
+            console.log('%d: Order %s was cancelled. Maximum bid is now %d.', Date.now(), order.orderID, maximumBid);
           }
           break;
         case 'sell':
-          // Best ask < our price (not tob any more) OR latest price * (1 + cancelRate) > our ask price OR last traded price older than 5 mins
+          // Best ask < our price OR latest price * (1 + cancelRate) > our ask price OR last traded price older than 5 mins
           if (
             minimumAsk < order.price ||
             prices[symbol][4] * (1 + cancelRate) > order.price ||
             timeDifference(prices[symbol][0]) > 300
           ) {
             api.cancelOrder(order.orderID);
-            console.log(
-              'Order %s was cancelled at %d. Show order minimumAsk: %d.',
-              order.orderID,
-              Date.now(),
-              minimumAsk
-            );
+            console.log('%d: Order %s was cancelled. Minimum ask is now %d.', Date.now(), order.orderID, minimumAsk);
           }
           break;
         default:
@@ -292,13 +266,13 @@ const getBalanceForCurrency = function (balances, currency) {
 };
 
 // Find the symbols where at least one exchanged currency has positive balance
-const positiveBalanceSymbols = function (balances, openSymbols) {
+const positiveBalanceSymbols = function (balances, listSymbols) {
   balanceSymbols = [];
   balances
     .filter((balance) => balance.available > 0)
     .forEach((balance) => {
       balanceSymbols = balanceSymbols.concat(
-        openSymbols.filter(
+        listSymbols.filter(
           (symbol) => balance.currency == getAskCurrency(symbol) || balance.currency == getBidCurrency(symbol)
         )
       );
