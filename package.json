@@ -4,13 +4,17 @@
   "description": "Connects to the blockchain exchange API to perform trading requests.",
   "main": "exchangeAPI.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "mocha",
     "start": "node app.js"
   },
   "author": "Constança Simas\u001b[A\u001b[B",
   "license": "ISC",
   "dependencies": {
+    "chai": "^4.2.0",
     "properties-reader": "^2.0.0",
     "ws": "^7.2.5"
+  },
+  "devDependencies": {
+    "mocha": "^7.1.2"
   }
 }

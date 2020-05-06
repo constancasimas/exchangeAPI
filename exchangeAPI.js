@@ -38,31 +38,27 @@ module.exports = {
     );
   },
 
-  subscribeOrdersL2: function (connection, openSymbols) {
-    openSymbols.forEach((symbol) =>
-      connection.send(
-        JSON.stringify({
-          action: 'subscribe',
-          channel: 'l2',
-          symbol: symbol,
-        })
-      )
+  subscribeOrdersL2: function (connection, symbol) {
+    connection.send(
+      JSON.stringify({
+        action: 'subscribe',
+        channel: 'l2',
+        symbol: symbol,
+      })
     );
   },
 
-  subscribeOrdersL3: function (connection, openSymbols) {
-    openSymbols.forEach((symbol) =>
-      connection.send(
-        JSON.stringify({
-          action: 'subscribe',
-          channel: 'l3',
-          symbol: symbol,
-        })
-      )
+  subscribeOrdersL3: function (connection, symbol) {
+    connection.send(
+      JSON.stringify({
+        action: 'subscribe',
+        channel: 'l3',
+        symbol: symbol,
+      })
     );
   },
 
-  // Authenticates subscriptions
+  // Authenticated subscriptions
   subscribeTrading: function (connection) {
     connection.send(
       JSON.stringify({
@@ -125,7 +121,7 @@ module.exports = {
 
   getOrderState: function (orders, orderID) {
     if (orders.length == 0) {
-      console.log('There are no orders in the snapshot.');
+      console.log('There are no open orders.');
       return;
     }
     const order = orders.find((order) => order.orderID === orderID);
@@ -148,7 +144,7 @@ module.exports = {
 
   cancelAllOrders: function (orders) {
     if (orders.length == 0) {
-      console.log('There are no orders in the snapshot.');
+      console.log('There are no open orders.');
       return;
     }
     orders.forEach((order) => {
@@ -160,22 +156,6 @@ module.exports = {
         })
       );
     });
-  },
-
-  findSymbols: function (msg) {
-    return Object.keys(msg.symbols);
-  },
-
-  findOpenSymbols: function (msg) {
-    return Object.entries(msg.symbols)
-      .map(([key, value]) => {
-        if (value.status == 'open') {
-          return key;
-        }
-      })
-      .filter((symbol) => {
-        return symbol !== undefined;
-      });
   },
 };
 
