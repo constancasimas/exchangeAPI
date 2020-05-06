@@ -66,8 +66,7 @@ function connect(apiKey) {
           console.log('Subscribing to symbol: %s', symbol);
           api.subscribeMarketData(connection, symbol, 60);
           api.subscribeOrdersL2(connection, symbol);
-          // Every 10 seconds we check if we have reasonable conditions for selling or buying
-          // by comparing the prices of the highest bid or lowest ask with the symbol prices
+          // Function for the actual strategy, where we decide when to open and cancel orders
           setInterval(() => botLogic(connection, orders, symbol, balances, l2Bids, l2Asks, prices, symbolMins), 10000);
         });
       }
@@ -134,9 +133,9 @@ function connect(apiKey) {
   };
 }
 
-// Contains all the logic required to decide when and which orders will be made
-// We want to be top of the book, but making sure our price is far enough from the last traded price
-// (by at least the rate defined in config.properties)
+// Contains all the logic for the strategy
+// We want to be top of the book, but making sure our price is far enough from the last traded price (by at least the rate defined in
+// config.properties) for us to make money on mark-to-market, without being picked by faster algos
 const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks, prices, symbolMins) {
   if (balances.length == 0 || l2Bids[symbol] == undefined || l2Asks == undefined) {
     return;
@@ -151,11 +150,13 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
   });
   if (!(bidBalance == undefined || bidBalance <= 0)) {
     if (!isEmptyOrNoKey(prices, symbol)) {
-      // close of candle * (1 - rate) > price of maximum bid AND price is more recent than 3 minutes
+      // latest price * (1 - rate) > price of maximum bid AND latest price is from less than 3 minutes ago -- we want to be sure that latest traded
+      // price is far from price we want to place order at, while being still recent enough to be representative
       if (prices[symbol][4] * (1 - rate) > maximumBid && timeDifference(prices[symbol][0]) < 180) {
-        // Price is maximum bid + increment
+        // Price is maximum bid + smallest possible increment to be tob
         bidPrice = round(maximumBid + symbolMins[symbol][0], 8);
-        // In this case we need to convert the balance to the first currency of the symbol and take trading fee into account
+        // In this case we need to convert the balance to the base currency. We will put all balance on the order, but need to correct for
+        // the trading fee, which is paid from that amount
         bidQty = roundDown((0.997 * bidBalance) / bidPrice, 6);
         // Check quantity is higher than minimum order size
         if (bidQty > symbolMins[symbol][1]) {
@@ -181,7 +182,7 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
   });
   if (!(askBalance == undefined || askBalance <= 0)) {
     if (!isEmptyOrNoKey(prices, symbol)) {
-      // close of candle * (1 + rate) < price of minimum ask AND price is more recent than 3 minutes
+      // latest price * (1 + rate) < price of minimum ask AND latest price is from less than 3 minutes ago
       if (prices[symbol][4] * (1 + rate) < minimumAsk && timeDifference(prices[symbol][0]) < 180) {
         // Price is minimum ask - increment
         askPrice = round(minimumAsk - symbolMins[symbol][0], 8);
@@ -202,13 +203,13 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
     }
   }
 
-  // Logic for cancelling limit orders
+  // Logic for cancelling orders
   orders
     .filter((order) => order.symbol == symbol && (order.ordStatus == 'open' || order.ordStatus == 'partial'))
     .forEach((order) => {
       switch (order.side) {
         case 'buy':
-          // Best bid > our price OR close of candle * (1 - cancelRate) < our bid price OR last traded price older than 5 mins
+          // Best bid > our price (not tob any more) OR latest price * (1 - cancelRate) < our bid price OR last traded price older than 5 mins
           if (
             maximumBid > order.price ||
             prices[symbol][4] * (1 - cancelRate) < order.price ||
@@ -224,7 +225,7 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
           }
           break;
         case 'sell':
-          // Best ask < our price OR close of candle (1 + cancelRate) > our ask price OR last traded price older than 5 mins
+          // Best ask < our price (not tob any more) OR latest price * (1 + cancelRate) > our ask price OR last traded price older than 5 mins
           if (
             minimumAsk < order.price ||
             prices[symbol][4] * (1 + cancelRate) > order.price ||
@@ -280,7 +281,7 @@ const identifyWithPrice = function (orders) {
   }, {});
 };
 
-// Find the balance for a currecy in the whole list of user balances
+// Find the balance for a currency in the whole list of user balances
 const getBalanceForCurrency = function (balances, currency) {
   const balance = balances.find((balance) => balance.currency == currency);
   if (balance == undefined) {
@@ -290,7 +291,7 @@ const getBalanceForCurrency = function (balances, currency) {
   }
 };
 
-// Find the symbols for currencies with positive balance
+// Find the symbols where at least one exchanged currency has positive balance
 const positiveBalanceSymbols = function (balances, openSymbols) {
   balanceSymbols = [];
   balances
@@ -318,10 +319,10 @@ const findOpenSymbols = function (msg) {
     });
 };
 
-// Gets arrays containing [minimum increment, minimum order size] for each open symbol
-const findMinsForSymbols = function (symbols, openSymbols) {
+// Gets arrays containing [minimum increment, minimum order size, lot size] for each symbol
+const findMinsForSymbols = function (symbols, listSymbols) {
   minsForSymbols = {};
-  openSymbols.forEach((symbol) => {
+  listSymbols.forEach((symbol) => {
     minsForSymbols[symbol] = [
       round(symbols[symbol].min_price_increment * Math.pow(10, -symbols[symbol].min_price_increment_scale), 8),
       round(symbols[symbol].min_order_size * Math.pow(10, -symbols[symbol].min_order_size_scale), 8),
