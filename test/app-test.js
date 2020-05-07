@@ -297,6 +297,18 @@ describe('getBidCurrency and getAskCurrency', function () {
   });
 });
 
+describe('countDecimals', function () {
+  it('should get the number of decimals, or 0 if it is an integer', function () {
+    assert.equal(app.countDecimals(0.000052), 6);
+    assert.equal(app.countDecimals(93), 0);
+    assert.equal(app.countDecimals(7.74), 2);
+  });
+
+  it('should give the number of decimals with scientific notation like 1e-n', function () {
+    assert.equal(app.countDecimals(1e-8), 8);
+  });
+});
+
 describe('getBalanceForCurrency', function () {
   it('should get the available balance for a currency', function () {
     const balances = [

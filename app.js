@@ -154,8 +154,8 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
         // Price is maximum bid + smallest possible increment, to be tob
         bidPrice = round(maximumBid + symbolMins[symbol][0], 8);
         // In this case we need to convert the balance to the base currency.
-        // We use all balance on the order and correct for the trading fee
-        bidQty = roundDown((0.997 * bidBalance) / bidPrice, 6);
+        // We use all balance on the order
+        bidQty = roundDown((0.997 * bidBalance) / bidPrice, countDecimals(symbolMins[symbol][2]));
         // Check quantity is higher than minimum order size
         if (bidQty > symbolMins[symbol][1]) {
           api.newLimitOrder(connection, symbol, 'GTC', 'buy', bidQty, bidPrice);
@@ -177,10 +177,10 @@ const botLogic = function (connection, orders, symbol, balances, l2Bids, l2Asks,
       if (prices[symbol][4] * (1 + rate) < minimumAsk && timeDifference(prices[symbol][0]) < 180) {
         // Price is minimum ask - increment
         askPrice = round(minimumAsk - symbolMins[symbol][0], 8);
-        askQty = askBalance;
+        askQty = roundDown(askBalance, countDecimals(symbolMins[symbol][2]));
         // Check quantity is higher than minimum order size
         if (askQty > symbolMins[symbol][1]) {
-          api.newLimitOrder(connection, symbol, 'GTC', 'sell', askBalance, askPrice);
+          api.newLimitOrder(connection, symbol, 'GTC', 'sell', askQty, askPrice);
           console.log('%d: New ask made on %s at price %d, for quantity %d.', Date.now(), symbol, askPrice, askQty);
         }
       }
@@ -331,6 +331,17 @@ const roundDown = function (value, decimals) {
   return Number(Math.floor(value + 'e' + decimals) + 'e-' + decimals);
 };
 
+const countDecimals = function (value) {
+  s = value.toString();
+  if (s.indexOf('e') != -1) {
+    return Number(s.charAt(s.length - 1));
+  }
+  if (Math.floor(value) !== value) {
+    return s.split('.')[1].length || 0;
+  }
+  return 0;
+};
+
 const isEmptyOrNoKey = function (obj, key) {
   const keys = Object.keys(obj);
   if (keys.length === 0) {
@@ -353,4 +364,5 @@ module.exports = {
   getBalanceForCurrency,
   timeDifference,
   isEmptyOrNoKey,
+  countDecimals,
 };
